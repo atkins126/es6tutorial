@@ -253,7 +253,7 @@ point.hasOwnProperty('toString') // false
 point.__proto__.hasOwnProperty('toString') // true
 ```
 
-上面代码中，`x`和`y`都是实例对象`point`自身的属性（因为定义在`this`变量上），所以`hasOwnProperty()`方法返回`true`，而`toString()`是原型对象的属性（因为定义在`Point`类上），所以`hasOwnProperty()`方法返回`false`。这些都与 ES5 的行为保持一致。
+上面代码中，`x`和`y`都是实例对象`point`自身的属性（因为定义在`this`对象上），所以`hasOwnProperty()`方法返回`true`，而`toString()`是原型对象的属性（因为定义在`Point`类上），所以`hasOwnProperty()`方法返回`false`。这些都与 ES5 的行为保持一致。
 
 与 ES5 一样，类的所有实例共享一个原型对象。
 
@@ -924,6 +924,198 @@ FakeMath.#computeRandomNumber() // 报错
 
 上面代码中，`#totallyRandomNumber`是私有属性，`#computeRandomNumber()`是私有方法，只能在`FakeMath`这个类的内部调用，外部调用就会报错。
 
+### in 运算符
+
+`try...catch`结构可以用来判断是否存在某个私有属性。
+
+```javascript
+class A {
+  use(obj) {
+    try {
+      obj.#foo;
+    } catch {
+      // 私有属性 #foo 不存在
+    }
+  }
+}
+
+const a = new A();
+a.use(a); // 报错
+```
+
+上面示例中，类`A`并不存在私有属性`#foo`，所以`try...catch`报错了。
+
+这样的写法很麻烦，可读性很差，V8 引擎改进了`in`运算符，使它也可以用来判断私有属性。
+
+```javascript
+class A {
+  use(obj) {
+    if (#foo in obj) {
+      // 私有属性 #foo 存在
+    } else {
+      // 私有属性 #foo 不存在
+    }
+  }
+}
+```
+
+上面示例中，`in`运算符判断当前类`A`的实例，是否有私有属性`#foo`，如果有返回`true`，否则返回`false`。
+
+`in`也可以跟`this`一起配合使用。
+
+```javascript
+class A {
+  #foo = 0;
+  m() {
+    console.log(#foo in this); // true
+    console.log(#bar in this); // false
+  }
+}
+```
+
+注意，判断私有属性时，`in`只能用在定义该私有属性的类的内部。
+
+```javascript
+class A {
+  #foo = 0;
+  static test(obj) {
+    console.log(#foo in obj);
+  }
+}
+
+A.test(new A()) // true
+A.test({}) // false
+
+class B {
+  #foo = 0;
+}
+
+A.test(new B()) // false
+```
+
+上面示例中，类`A`的私有属性`#foo`，只能在类`A`内部使用`in`运算符判断，而且只对`A`的实例返回`true`，对于其他对象都返回`false`。
+
+子类从父类继承的私有属性，也可以使用`in`运算符来判断。
+
+```javascript
+class A {
+  #foo = 0;
+  static test(obj) {
+    console.log(#foo in obj);
+  }
+}
+
+class SubA extends A {};
+
+A.test(new SubA()) // true
+```
+
+上面示例中，`SubA`从父类继承了私有属性`#foo`，`in`运算符也有效。
+
+注意，`in`运算符对于`Object.create()`、`Object.setPrototypeOf`形成的继承，是无效的，因为这种继承不会传递私有属性。
+
+```javascript
+class A {
+  #foo = 0;
+  static test(obj) {
+    console.log(#foo in obj);
+  }
+}
+const a = new A();
+
+const o1 = Object.create(a);
+A.test(o1) // false
+A.test(o1.__proto__) // true
+
+const o2 = {};
+Object.setPrototypeOf(o2, a);
+A.test(o2) // false
+A.test(o2.__proto__) // true
+```
+
+上面示例中，对于修改原型链形成的继承，子类都取不到父类的私有属性，所以`in`运算符无效。
+
+## 静态块
+
+静态属性的一个问题是，它的初始化要么写在类的外部，要么写在`constructor()`方法里面。
+
+```javascript
+class C {
+  static x = 234;
+  static y;
+  static z;
+}
+
+try {
+  const obj = doSomethingWith(C.x);
+  C.y = obj.y
+  C.z = obj.z;
+} catch {
+  C.y = ...;
+  C.z = ...;
+}
+```
+
+上面示例中，静态属性`y`和`z`的值依赖静态属性`x`，它们的初始化写在类的外部（上例的`try...catch`代码块）。另一种方法是写到类的`constructor()`方法里面。这两种方法都不是很理想，前者是将类的内部逻辑写到了外部，后者则是每次新建实例都会运行一次。
+
+为了解决这个问题，ES2022 引入了[静态块](https://github.com/tc39/proposal-class-static-block)（static block），允许在类的内部设置一个代码块，在类生成时运行一次，主要作用是对静态属性进行初始化。
+
+```javascript
+class C {
+  static x = ...;
+  static y;
+  static z;
+
+  static {
+    try {
+      const obj = doSomethingWith(this.x);
+      this.y = obj.y;
+      this.z = obj.z;
+    }
+    catch {
+      this.y = ...;
+      this.z = ...;
+    }
+  }
+}
+```
+
+上面代码中，类的内部有一个 static 代码块，这就是静态块。它的好处是将静态属性`y`和`z`的初始化逻辑，写入了类的内部，而且只运行一次。
+
+每个类只能有一个静态块，在静态属性声明后运行。静态块的内部不能有`return`语句。
+
+静态块内部可以使用类名或`this`，指代当前类。
+
+```c
+class C {
+  static x = 1;
+  static {
+    this.x; // 1
+    // 或者
+    C.x; // 1
+  }
+}
+```
+
+上面示例中，`this.x`和`C.x`都能获取静态属性`x`。
+
+除了静态属性的初始化，静态块还有一个作用，就是将私有属性与类的外部代码分享。
+
+```javascript
+let getX;
+
+export class C {
+  #x = 1;
+  static {
+    getX = obj => obj.#x;
+  }
+}
+
+console.log(getX(new C())); // 1
+```
+
+上面示例中，`#x`是类的私有属性，如果类外部的`getX()`方法希望获取这个属性，以前是要写在类的`constructor()`方法里面，这样的话，每次新建实例都会定义一次`getX()`方法。现在可以写在静态块里面，这样的话，只在类生成时定义一次。
+
 ## new.target 属性
 
 `new`是从构造函数生成实例对象的命令。ES6 为`new`命令引入了一个`new.target`属性，该属性一般用在构造函数之中，返回`new`命令作用于的那个构造函数。如果构造函数不是通过`new`命令或`Reflect.construct()`调用的，`new.target`会返回`undefined`，因此这个属性可以用来确定构造函数是怎么调用的。
@@ -1012,3 +1204,4 @@ var y = new Rectangle(3, 4);  // 正确
 上面代码中，`Shape`类不能被实例化，只能用于继承。
 
 注意，在函数外部，使用`new.target`会报错。
+

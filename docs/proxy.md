@@ -344,6 +344,7 @@ let validator = {
 
     // 对于满足条件的 age 属性以及其他属性，直接保存
     obj[prop] = value;
+    return true;
   }
 };
 
@@ -393,6 +394,7 @@ proxy._prop = 'c'
 const handler = {
   set: function(obj, prop, value, receiver) {
     obj[prop] = receiver;
+    return true;
   }
 };
 const proxy = new Proxy({}, handler);
@@ -406,6 +408,7 @@ proxy.foo === proxy // true
 const handler = {
   set: function(obj, prop, value, receiver) {
     obj[prop] = receiver;
+    return true;
   }
 };
 const proxy = new Proxy({}, handler);
@@ -430,6 +433,7 @@ Object.defineProperty(obj, 'foo', {
 const handler = {
   set: function(obj, prop, value, receiver) {
     obj[prop] = 'baz';
+    return true;
   }
 };
 
@@ -440,7 +444,7 @@ proxy.foo // "bar"
 
 上面代码中，`obj.foo`属性不可写，Proxy 对这个属性的`set`代理将不会生效。
 
-注意，严格模式下，`set`代理如果没有返回`true`，就会报错。
+注意，`set`代理应当返回一个布尔值。严格模式下，`set`代理如果没有返回`true`，就会报错。
 
 ```javascript
 'use strict';
@@ -1086,7 +1090,7 @@ target.m() // false
 proxy.m()  // true
 ```
 
-上面代码中，一旦`proxy`代理`target`，`target.m()`内部的`this`就是指向`proxy`，而不是`target`。
+上面代码中，一旦`proxy`代理`target`，`target.m()`内部的`this`就是指向`proxy`，而不是`target`。所以，虽然`proxy`没有做任何拦截，`target.m()`和`proxy.m()`返回不一样的结果。
 
 下面是一个例子，由于`this`指向的变化，导致 Proxy 无法代理目标对象。
 
